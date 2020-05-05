@@ -1,0 +1,439 @@
+---
+title: "Test coding"
+author: "Louise"
+date: "23/4/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Loading packages
+pacman::p_load(tidyverse, brms, bayesplot, rethinking, data.table)
+```
+
+
+Fancy model example
+```{r}
+# globe_qa_brms <-
+#   brm(data = list(w = 24), 
+#       family = binomial(link = "identity"),
+#       w | trials(36) ~ 1,
+#       prior(beta(1, 1), class = Intercept),
+#       iter = 4000, warmup = 1000,
+#       control = list(adapt_delta = .9),
+#       seed = 4)
+```
+
+
+Faking some data (the easy and not representational way)
+```{r}
+d_fake <- tibble(
+  ID = c(1:40),
+  incorrect = c(rep(0, 30), rep(1, 10)),
+  RT = c(rnorm(20, 800, 100), rnorm(20, 900, 150)),
+  consistency = c(rep(0:1, 20)),
+  condition = c(rep(0:1, 20)),
+  empathy = rnorm(40, 77.5, 23)
+)
+
+d_fake$ID <- as.factor(d_fake$ID)
+d_fake$incorrect <- as.factor(d_fake$incorrect)
+d_fake$consistency <- as.factor(d_fake$consistency)
+d_fake$condition <- as.factor(d_fake$condition)
+d_fake$empathy <- as.integer(d_fake$empathy)
+```
+
+
+Reading example data
+```{r}
+# NOT NEEDED
+#d3 <- read_csv("data_times.csv") (only data times)
+
+# Loading data
+d1 <- read_csv("data.csv")          # All participants info + emp
+p <- read.table("DPT_FEMALE.2020-04-29-1628.data.6fa8424a-a872-459f-b3a8-d60c12f0fe2b.txt", quote="\"", comment.char="")   # Single participant experimental trials
+
+# Preprocessing
+
+# Reversing empathy item 1, 2, 17, 29
+d1[ ,c(10,11,26,38)] = 5 - d1[ ,c(10,11,26,38)]
+
+# Calculating empathy (Cognitive Empathy, Affective Empathy, Total Empathy Score)
+d1$cogemp <- rowSums(d1[, c(10, 12:15, 24:25, 27:31, 33:37, 39:40)])
+d1$affemp <- rowSums(d1[, c(11, 16:23, 26, 32, 38)])
+d1$totalemp <- d1$cogemp + d1$affemp
+
+# Gender into M and F
+d1$gender <- ifelse(d1$`sex:1` == 1, "M", "F")
+
+# Nationality (native_language) and siblings
+d1$native <- 0
+d1$siblings <- NA
+
+for(i in 1:nrow(d1)){
+  d1$native[i] <- ifelse(d1[i,4] == 1, "danish",
+                     ifelse(d1[i,4] == 2, "english",
+                            ifelse(d1[i,4] == 3, "german",
+                                   d1[i,5])))
+  d1$siblings[i] <- ifelse(d1[i, 6] == 5, d1[i, 7], d1[i, 6])
+  }
+
+# Renaming age column
+names(d1)[2] <- "age"
+
+# Matching the names in order to merge (participant remvoving s.)
+d1$participant <- gsub("s.", "", d1$participant)
+
+
+# New dataframe without all the empathy columns
+emp <- d1[, c("participant", "gender", "age", "native", "siblings", "cogemp", "affemp", "totalemp")]
+
+
+
+# Filename for merging
+#setwd("C:/Users/louis/OneDrive - Aarhus universitet/AU Onedrive - RIGTIG/- 4. Semester/Social and Cultural Dynamics in Cognition/Exam related/Coding")
+
+# read file path
+all_paths <-
+  list.files(path = "C:/Users/louis/OneDrive - Aarhus universitet/AU Onedrive - RIGTIG/- 4. Semester/Social and Cultural Dynamics in Cognition/Exam related/Coding",
+             pattern = "*.txt",
+             full.names = TRUE)
+ 
+# read file content
+all_content <-
+  all_paths %>%
+  lapply(read.table,
+         quote="\"",
+         comment.char="")
+ 
+# read file name
+all_filenames <- all_paths %>%
+  basename() %>%
+  as.list()
+ 
+# combine file content list and file name list
+all_lists <- mapply(c, all_content, all_filenames, SIMPLIFY = FALSE)
+ 
+# unlist all lists and change column name
+all_result <- rbindlist(all_lists, fill = T)
+
+# change column name
+names(all_result) <- c("block", "stimuli", "condition", "direction", "self", "other", "consistency", "cue", "correctresponse", "response", "accuracy", "RT", "participant")
+
+
+# Function for keeping the last part
+substrRight <- function(x, n){
+  substr(x, nchar(x)-n+1, nchar(x))
+}
+ # Using the function to keep 40 last characters
+all_result$participant <- substrRight(all_result$participant, 40)
+
+# Button and correctbutton
+all_result$correctresponse <- ifelse(all_result$correctresponse == 1, "yes", "no")
+all_result$response <- ifelse(all_result$response == 1, "yes", "no")
+all_result$response <- ifelse(all_result$accuracy == 3, "late", all_result$response)
+
+# Accuracy
+all_result$accuracy <- ifelse(all_result$accuracy == 1, "correct", ifelse(all_result$accuracy ==2, "incorrect", "late"))
+
+
+### Merging by participant
+d <- merge(emp, all_result, by = "participant")
+
+# Creating indices for each participant
+d$ID <- d %>%
+  group_indices(participant)
+```
+
+
+Reaction Time - Defining models
+```{r}
+# Baseline model
+RT_f0 <- bf(RT ~ 1)
+# Condition + consistency model
+RT_f1 <- bf(RT ~ 1 + condition + consistency)
+# Interaction model
+RT_f2 <- bf(RT ~ 0 + condition + condition : consistency)
+
+# Multilevel baseline model
+RT_f0_ <- bf(RT ~ 1 + (1|ID))
+# Multilevel consistency model
+RT_f1_ <- bf(RT ~ 1 + condition + consistency + (1 + condition + consistency|ID))
+# Multilevel interaction model
+RT_f2_ <- bf(RT ~ 0 + condition + condition : consistency + (0 + condition + condition : consistency | ID))
+```
+
+Reaction Time - Setting priors
+```{r}
+
+```
+
+RF: Chimp-video part 2:
+We want to see the propensity of participants to be affected by altercentric intrusion/consistency effect (across conditions) (that is, their propensity to make errors on the DPT in consistent vs. inconsistent and arrow vs. avatar condition).
+We hope to see that that propensity is modulated by the level of consistency and condition (whether there is an arrow or avatar in the stimulus). It only makes sense as a social process, if it is higher when there is an avatar compared to an arrow in the middle (however, other processes (directional cueing) can account for the effect, if it is found in the arrow condition as well).
+
+Outcome: 1 vs. 0 (has the participant made an incorrect vs correct response)
+We are trying to reconstruct the probability of making an error (/choosing prosocial).
+
+
+Error - Defining models
+```{r}
+# Baseline model
+incorrect_f0 <- bf(incorrect ~ 1) # Fixed level of errors across all conditions
+# Condition + consistency model
+incorrect_f1 <- bf(incorrect ~ 1 + condition + consistency) # Expecting that the level of errors will be affected by the level of condition/consistency.
+# Interaction model
+incorrect_f2 <- bf(incorrect ~ 0 + condition + condition : consistency)
+
+# Multilevel baseline model
+incorrect_f0_ <- bf(incorrect ~ 1 + (1|ID)) # Partially pooling per participant (more far away are pooled more than closer to the overall mean + more data than others will pull the participant less - not relevant to us though)
+# Multilevel consistency model
+incorrect_f1_ <- bf(incorrect ~ 1 + condition + consistency + (1 + condition + consistency|ID))
+# Multilevel interaction model
+incorrect_f2_ <- bf(incorrect ~ 0 + condition + condition : consistency + (0 + condition + condition : consistency | ID))
+```
+
+Error - F0 - Setting priors
+```{r}
+# F0
+# Which priors to define?
+get_prior(incorrect_f0, d_fake, family = bernoulli())
+
+# Setting priors
+prior_in_f0 <- c(
+  prior(normal(0, 1.5), class = Intercept) # = mean prob of error (what do we assume)
+)
+# If 0 = centering at chance (inv_logit of 0 = 0.5), making it "random" whether it is correct or incorrect. We do not know much yet - going from 0 to 1, discounting the extreme values a bit.
+# If -0.8 = 0.31 = 31 % prob of incorrect (but how much do we know at this point?)
+# Does it mirror our expectations?
+
+# Testing the priors
+p <- rnorm(10000, -0.7, 1)
+dens(p) # on the log-odds scale/space (insensible)
+dens(inv_logit(p)) # on the outcome/probability scale/space (0 = always correct, 1 = always incorrect)
+
+# Testing the prior in the model
+m0_prior <- brm(
+  incorrect_f0,
+  d_fake,
+  family = bernoulli(),
+  prior = prior_in_f0,
+  sample_prior = "only"
+)
+
+# Standard pp_check
+# pp_check(m0_prior, nsamples = 100) Bypass this
+
+# Better pp_check (when starting to add more parameters, it will be difficult to run ad hoc check with the standard pp_check)
+y_pred <- posterior_linpred(m0_prior) # Generating predictions from the models, not 0s and 1s, but expected rates (thus we want linear prediction - in log-odds space)
+dens(inv_logit(y_pred)) # Into probability space (almost uniform distribution with discounting of values of 0 and 1)
+```
+
+Error - F0 - Fitting the model
+```{r}
+# Fitting the model
+m0 <- brm(
+  incorrect_f0,
+  d_fake,
+  family = bernoulli(),
+  prior = prior_in_f0,
+  sample_prior = T
+)
+
+# Quality check of the model
+summary(m0) # Checking for warnings of divergences and Rhat, ESS
+
+# Trace plots and trace rank plots (Only interested in intercept, the only parameter we have)
+color_scheme_set("viridis")
+mcmc_trace(m0, pars="b_Intercept") + theme_classic()
+mcmc_rank_overlay(m0, pars="b_Intercept") + theme_classic()
+
+# Better pp_check (with m0 instead of m0_prior now)
+y_pred <- posterior_linpred(m0)
+dens(inv_logit(y_pred))
+# See centring around 25% - that is a propensity for answering correctly (= 0). Probability scale. And the range of values all look possible.
+# Not comparing with actual data. Can in principle alo be compared with the actual data (he will not do that now though)
+
+## Posterior update check (Has the posterior learned from the prior?)
+plot(hypothesis(m0,"Intercept < 0")) 
+# Log-odds scale (0 = chance level). We think, the chance is higher for correct (0) than for incorrect (1), thus below chance level probability of incorrect.
+# It does not plot the prior for Intercept.
+```
+
+
+Error - F1 - Setting priors
+```{r}
+# F1
+# Which priors to define?
+get_prior(incorrect_f1, d_fake, family = bernoulli())
+
+# Setting priors
+prior_in_f1 <- c(
+  prior(normal(0, 1.5), class = Intercept), # = mean prob of error (same as before)
+  prior(normal(0, 0.3), class = b)
+)
+# If 0 = centering at chance (inv_logit of 0 = 0.5), making it "random" whether it is correct or incorrect. We do not know much yet - going from 0 to 1, discounting the extreme values a bit.
+# If -0.8 = 0.31 = 31 % prob of incorrect (but how much do we know at this point?)
+# Does it mirror our expectations?
+
+# Testing the priors
+p <- inv_logit(rnorm(10000, 0, 1.5) + rnorm(10000, 0, 0.3))
+dens(p) # on the outcome/probability scale/space (0 = always correct, 1 = always incorrect)
+# Looks like what we expected to see - something which just removes a bit of the probability of the extremes
+
+# Testing the prior in the model
+m1_prior <- brm(
+  incorrect_f1,
+  d_fake,
+  family = bernoulli(),
+  prior = prior_in_f1,
+  sample_prior = "only"
+)
+
+# Standard pp_check
+# pp_check(m1_prior, nsamples = 100) Bypass this
+
+# Better pp_check (when starting to add more parameters, it will be difficult to run ad hoc check with the standard pp_check)
+y_pred <- posterior_linpred(m1_prior) # Generating predictions from the models, not 0s and 1s, but expected rates (thus we want linear prediction - in log-odds space)
+dens(inv_logit(y_pred)) # Into probability space (almost uniform distribution with discounting of values of 0 and 1)
+```
+
+Error - F1 - Fitting the model
+```{r}
+# Fitting the model
+m1 <- brm(
+  incorrect_f1,
+  d_fake,
+  family = bernoulli(),
+  prior = prior_in_f1,
+  sample_prior = T
+)
+
+# Quality check of the model
+summary(m1) # Checking for warnings of divergences and Rhat, ESS
+
+# KOMMET HERTIL
+
+# Trace plots and trace rank plots (Only interested in intercept, the only parameter we have)
+color_scheme_set("viridis")
+mcmc_trace(m1, pars="b_Intercept") + theme_classic()
+mcmc_rank_overlay(m1, pars="b_Intercept") + theme_classic()
+
+# Better pp_check (with m0 instead of m0_prior now)
+y_pred <- posterior_linpred(m1)
+dens(inv_logit(y_pred))
+# See centring around 25% - that is a propensity for answering correctly (= 0). Probability scale. And the range of values all look possible.
+# Not comparing with actual data. Can in principle alo be compared with the actual data (he will not do that now though)
+
+## Posterior update check (Has the posterior learned from the prior?)
+plot(hypothesis(m1,"Intercept < 0")) 
+# Log-odds scale (0 = chance level). We think, the chance is higher for correct (0) than for incorrect (1), thus below chance level probability of incorrect.
+# It does not plot the prior for Intercept.
+```
+
+
+Baseline model
+```{r}
+# Which priors to define?
+get_prior(incorrect_f1, d, family = bernoulli())    # Intercept
+
+# Defining prior
+prior_f0 <- c(
+  prior(normal(0, 1.5), class = Intercept) # 0 = centering at chance (inv_logit of 0 = 0.5), making it "random" whether it is correct or incorrect. We do not know much yet - going from 0 to 1, discounting the extreme values a bit.
+)
+
+# Testing the prior
+p <- rnorm(1000000, 0, 1.5)
+dens(p) # on the log-odds scale (insensible)
+dens(inv_logit(p)) # on the probability scale
+
+# Testing the prior in the model
+m0_prior <- brm(
+  incorrect_f0,
+  d,
+  family = bernoulli(),
+  prior = prior_f0,
+  sample_prior = "only"
+)
+
+# Standard pp_check
+pp_check(m0_prior, nsamples = 100)
+
+# Better pp_check (when starting to add more parameters, it will be difficult to run ad hoc check with the standard pp_check)
+y_pred <- posterior_linpred(m0_prior) # Generating predictions from the models, not 0s and 1s, but rates (thus linear prediction - in log-odds space)
+dens(inv_logit(y_pred)) # Into probability space (almost uniform distribution with discounting of values of 0 and 1)
+
+# Fitting the model
+m0 <- brm(
+  incorrect_f0,
+  d,
+  family = bernoulli(),
+  prior = prior_f0,
+  sample_prior = T
+)
+
+# Quality check of the model
+# Checking for warnings of divergences and Rhat, ESS
+summary(m0)
+
+# Trace plots and trace rank plots
+color_scheme_set("viridis")
+mcmc_trace(m0, pars="b_Intercept") + theme_classic()
+mcmc_rank_overlay(m0, pars="b_Intercept") + theme_classic()
+
+# Better pp_check (with m0 instead of m0_prior now)
+y_pred <- posterior_linpred(m0)
+dens(inv_logit(y_pred)) # Not comparing with actual data, but see centring around 25% - that is a propensity for answering correctly. Probability scale.
+
+## Posterior update check
+plot(hypothesis(m0,"Intercept < 0")) # Has the posterior learned from the prior? Log-odds scale (0 = chance level). Not plotting the prior for Intercept.
+
+# LOOK AT THIS AFTER MODEL COMPARISON MAYBE?!?!
+# hypothesis(m0, "Intercept < 0")) for estimates and ER!
+# summary(m0) and its estimates
+
+log(1)
+exp(0)
+
+```
+
+
+Consistency model
+```{r}
+get_prior(incorrect_f0_, d, family = bernoulli())   # Intercept, SD, SD of ID, SD of Intercept ID
+
+lambda <- exp(rnorm(10000, 7, 0.3))
+dens(lambda)
+
+# Testing the prior
+p <- rnorm(10000, 7, 6)
+dens(p) # on the log scale
+dens(inv_logit(p)) # on the ms scale
+
+get_prior(incorrect_f1, d, family = lognormal())    # Intercept
+```
+
+
+Hypothesis 2
+```{r}
+prior_test <- c(
+  prior(normal(0, 1.5), class = b))
+
+mtest <- brm(
+  RT_f2_,
+  d,
+  family = lognormal(),
+  prior = prior_test,
+  sample_prior = T
+)
+
+ranef(mtest, summary = T)
+ranef(mtest, summary = F)
+test <- data.frame((ranef(mtest, summary = F)))
+
+
+# Which priors should be defined?
+get_prior(RT_f3, d, family = lognormal())
+```
+
