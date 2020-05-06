@@ -52,7 +52,7 @@ Reading example data
 
 # Loading data
 d1 <- read_csv("data.csv")          # All participants info + emp
-p <- read.table("DPT_FEMALE.2020-04-29-1628.data.6fa8424a-a872-459f-b3a8-d60c12f0fe2b.txt", quote="\"", comment.char="")   # Single participant experimental trials
+# p <- read.table("DPT_FEMALE.2020-04-29-1628.data.6fa8424a-a872-459f-b3a8-d60c12f0fe2b.txt", quote="\"", comment.char="")   # Single participant experimental trials
 
 # Preprocessing
 
@@ -151,6 +151,7 @@ Reaction Time - Defining models
 ```{r}
 # Baseline model
 RT_f0 <- bf(RT ~ 1)
+#Maybe a model with consistency alone?
 # Condition + consistency model
 RT_f1 <- bf(RT ~ 1 + condition + consistency)
 # Interaction model
@@ -158,6 +159,7 @@ RT_f2 <- bf(RT ~ 0 + condition + condition : consistency)
 
 # Multilevel baseline model
 RT_f0_ <- bf(RT ~ 1 + (1|ID))
+#Maybe a model with consistency alone?
 # Multilevel consistency model
 RT_f1_ <- bf(RT ~ 1 + condition + consistency + (1 + condition + consistency|ID))
 # Multilevel interaction model
@@ -181,6 +183,7 @@ Error - Defining models
 ```{r}
 # Baseline model
 incorrect_f0 <- bf(incorrect ~ 1) # Fixed level of errors across all conditions
+#Maybe a model with consistency alone?
 # Condition + consistency model
 incorrect_f1 <- bf(incorrect ~ 1 + condition + consistency) # Expecting that the level of errors will be affected by the level of condition/consistency.
 # Interaction model
@@ -188,6 +191,7 @@ incorrect_f2 <- bf(incorrect ~ 0 + condition + condition : consistency)
 
 # Multilevel baseline model
 incorrect_f0_ <- bf(incorrect ~ 1 + (1|ID)) # Partially pooling per participant (more far away are pooled more than closer to the overall mean + more data than others will pull the participant less - not relevant to us though)
+#Maybe a model with consistency alone?
 # Multilevel consistency model
 incorrect_f1_ <- bf(incorrect ~ 1 + condition + consistency + (1 + condition + consistency|ID))
 # Multilevel interaction model
@@ -271,15 +275,18 @@ get_prior(incorrect_f1, d_fake, family = bernoulli())
 # Setting priors
 prior_in_f1 <- c(
   prior(normal(0, 1.5), class = Intercept), # = mean prob of error (same as before)
-  prior(normal(0, 0.3), class = b)
+  prior(normal(0, 0.3), class = b, coef = condition1),
+  prior(normal(0, 0.3), class = b, coef = consistency1)
 )
 # If 0 = centering at chance (inv_logit of 0 = 0.5), making it "random" whether it is correct or incorrect. We do not know much yet - going from 0 to 1, discounting the extreme values a bit.
 # If -0.8 = 0.31 = 31 % prob of incorrect (but how much do we know at this point?)
 # Does it mirror our expectations?
 
 # Testing the priors
-p <- inv_logit(rnorm(10000, 0, 1.5) + rnorm(10000, 0, 0.3))
-dens(p) # on the outcome/probability scale/space (0 = always correct, 1 = always incorrect)
+p <- inv_logit(rnorm(10000, 0, 1.5) +
+                 rnorm(10000, 0, 0.3) +
+                 rnorm(10000, 0, 0.3))
+dens(p) # on the outcome/probability scale/space (0% incorrect = always correct, 100% incorrect = always incorrect)
 # Looks like what we expected to see - something which just removes a bit of the probability of the extremes
 
 # Testing the prior in the model
@@ -317,20 +324,238 @@ summary(m1) # Checking for warnings of divergences and Rhat, ESS
 
 # Trace plots and trace rank plots (Only interested in intercept, the only parameter we have)
 color_scheme_set("viridis")
-mcmc_trace(m1, pars="b_Intercept") + theme_classic()
-mcmc_rank_overlay(m1, pars="b_Intercept") + theme_classic()
+mcmc_trace(m1, pars = "b_Intercept", c("b_condition1", "b_consistency1")) + theme_classic() # we can ignore the lp (log-probability)
+mcmc_rank_overlay(m1, pars = "b_Intercept", c("b_condition1", "b_consistency1")) + theme_classic()
 
 # Better pp_check (with m0 instead of m0_prior now)
 y_pred <- posterior_linpred(m1)
 dens(inv_logit(y_pred))
-# See centring around 25% - that is a propensity for answering correctly (= 0). Probability scale. And the range of values all look possible.
+# See centring around 25% - that is a propensity for answering correctly (25% probability of answering incorrect). Probability scale. And the range of values all look possible.
 # Not comparing with actual data. Can in principle alo be compared with the actual data (he will not do that now though)
 
 ## Posterior update check (Has the posterior learned from the prior?)
-plot(hypothesis(m1,"Intercept < 0")) 
-# Log-odds scale (0 = chance level). We think, the chance is higher for correct (0) than for incorrect (1), thus below chance level probability of incorrect.
-# It does not plot the prior for Intercept.
+plot(hypothesis(m1,"condition1 > 0")) 
+plot(hypothesis(m1,"consistency1 > 0")) 
+# If the mean sat in the prior is pretty close to the data, then the posterior will not move that much in terms of the mean. But has it gotten more confidence (i.e. is it more narrow/has it learnt)?
+# He does not mention anything about actual hypothesis testing here...
 ```
+
+Error - F2 - Setting priors
+```{r}
+# F2
+# Which priors to define?
+get_prior(incorrect_f2, d_fake, family = bernoulli())
+
+# Setting priors
+prior_in_f2 <- c(
+  prior(normal(0, 1.5), class = b, coef = condition0), # mean prob of error in arrow
+  prior(normal(0, 1.5), class = b, coef = condition1), # mean prob of error in avatar
+  prior(normal(0, 0.3), class = b, coef = condition0:consistency1), # mean prob difference/effect in arrow going consistent to inconsistent
+  prior(normal(0, 0.3), class = b, coef = condition1:consistency1) # mean prob difference/effect in avatar going consisten to inconsistent
+)
+# Setting all the betas to be like the original intercept (in the 1+ models above 34:10 in RF's video). (the condition betas which represent the intercept), and the : betas reflect an effect, so we set them as the effect from before.
+# If 0 = centering at chance (inv_logit of 0 = 0.5), making it "random" whether it is correct or incorrect. We do not know much yet - going from 0 to 1, discounting the extreme values a bit.
+
+# Testing the priors (DOES NOT SEEM TO REFLECT THE ABOVE/BELOW!)
+p <- inv_logit(rnorm(10000, 0, 1.5) +
+                 rnorm(10000, 0, 1.5) +
+                 rnorm(10000, 0, 0.3) +
+                 rnorm(10000, 0, 0.3))
+dens(p)
+# on the outcome/probability scale/space (0% incorrect = always correct, 100% incorrect = always incorrect)
+# Looks like what we expected to see - something which just removes a bit of the probability of the extremes
+
+# Testing the prior in the model
+m2_prior <- brm(
+  incorrect_f2,
+  d_fake,
+  family = bernoulli(),
+  prior = prior_in_f2,
+  sample_prior = "only"
+)
+
+# Standard pp_check
+# pp_check(m2_prior, nsamples = 1000) #Bypass this
+
+# Better pp_check (when starting to add more parameters, it will be difficult to run ad hoc check with the standard pp_check)
+y_pred <- posterior_linpred(m2_prior) # Generating predictions from the models, not 0s and 1s, but expected rates (thus we want linear prediction - in log-odds space)
+dens(inv_logit(y_pred)) # Into probability space (almost uniform distribution with discounting of values of 0 and 1)
+dens(posterior_linpred(m2_prior, transform = T)) # Easy way to do the above two lines
+```
+
+Error - F2 - Fitting the model
+```{r}
+# Fitting the model
+m2 <- brm(
+  incorrect_f2,
+  d_fake,
+  family = bernoulli(),
+  prior = prior_in_f2,
+  sample_prior = T
+)
+
+# Quality check of the model
+summary(m2) # Checking for warnings of divergences and Rhat, ESS
+
+# Trace plots and trace rank plots (Only interested in intercept, the only parameter we have)
+color_scheme_set("viridis")
+mcmc_trace(m2, pars = c("b_condition0", "b_condition1", "b_condition0:consistency1", "b_condition1:consistency1")) + theme_classic() # we can ignore the lp (log-probability)
+mcmc_rank_overlay(m2, pars = c("b_condition0", "b_condition1", "b_condition0:consistency1", "b_condition1:consistency1")) + theme_classic()
+
+# Better pp_check (with m0 instead of m0_prior now)
+y_pred <- posterior_linpred(m2)
+dens(inv_logit(y_pred))
+# See centring around 25% - that is a propensity for answering correctly (25% probability of answering incorrect). Probability scale. And the range of values all look possible.
+# Not comparing with actual data. Can in principle alo be compared with the actual data (he will not do that now though)
+
+## Posterior update check (Has the posterior learned from the prior?)
+plot(hypothesis(m2,"condition0 > 0")) # has learned
+plot(hypothesis(m2,"condition1 > 0")) # has learned
+plot(hypothesis(m2,"condition0:consistency1 > 0")) # has not really gotten more confindent. One could go back to the prior and make sure that you do not too strongly influence the posterior
+plot(hypothesis(m2,"condition1:consistency1 > 0"))
+# If the mean sat in the prior is pretty close to the data, then the posterior will not move that much in terms of the mean. But has it gotten more confidence (i.e. is it more narrow/has it learnt)?
+# He does not mention anything about actual hypothesis testing here...
+```
+
+Error - F0_ (Multilevel) - Setting priors
+```{r}
+# F0_ (Multilevel)
+# Which priors to define?
+get_prior(incorrect_f0_, d_fake, family = bernoulli())
+
+# Setting priors
+prior_in_f0_ <- c(
+  prior(normal(0, 1.5), class = Intercept), # mean prob of error in arrow
+  prior(normal(0, 0.3), class = sd) # SD of intercept by ID (how much we expect the participants to vary)
+)
+# If 0 = centering at chance (inv_logit of 0 = 0.5), making it "random" whether it is correct or incorrect. We do not know much yet - going from 0 to 1, discounting the extreme values a bit.
+
+# Testing the priors (DOES NOT SEEM TO REFLECT THE ABOVE/BELOW!)
+p <- inv_logit(rnorm(100000, 0, 1.5) +
+                 rnorm(100000, 0, 0.3))
+dens(p)
+# on the outcome/probability scale/space (0% incorrect = always correct, 100% incorrect = always incorrect)
+# Looks like what we expected to see - something which just removes a bit of the probability of the extremes
+
+# Testing the prior in the model
+m0__prior <- brm(
+  incorrect_f0_,
+  d_fake,
+  family = bernoulli(),
+  prior = prior_in_f0_,
+  sample_prior = "only"
+)
+
+# Standard pp_check
+# pp_check(m2_prior, nsamples = 1000) #Bypass this
+
+# Better pp_check (when starting to add more parameters, it will be difficult to run ad hoc check with the standard pp_check)
+y_pred <- posterior_linpred(m0__prior) # Generating predictions from the models, not 0s and 1s, but expected rates (thus we want linear prediction - in log-odds space)
+dens(inv_logit(y_pred)) # Into probability space (almost uniform distribution with discounting of values of 0 and 1)
+```
+
+Error - F0_ (Multilevel) - Fitting the model
+```{r}
+# Fitting the model
+m0_ <- brm(
+  incorrect_f0_,
+  d_fake,
+  family = bernoulli(),
+  prior = prior_in_f0_,
+  sample_prior = T
+)
+
+# Quality check of the model
+summary(m0_) # Checking for warnings of divergences and Rhat, ESS
+
+# Trace plots and trace rank plots (Only interested in intercept, the only parameter we have)
+color_scheme_set("viridis")
+mcmc_trace(m0_, pars = c("b_Intercept", "sd_ID__Intercept")) + theme_classic() # we can ignore the lp (log-probability).
+# Is it enough to look at the general sd, or per ID?
+mcmc_rank_overlay(m0_, pars = c("b_Intercept", "sd_ID__Intercept")) + theme_classic()
+
+# Better pp_check (with m0 instead of m0_prior now)
+y_pred <- posterior_linpred(m0_)
+dens(inv_logit(y_pred))
+# See centring around 25% - that is a propensity for answering correctly (25% probability of answering incorrect). Probability scale. And the range of values all look possible.
+# Not comparing with actual data. Can in principle alo be compared with the actual data (he will not do that now though)
+
+## Posterior update check (Has the posterior learned from the prior?)
+plot(hypothesis(m0_,"Intercept > 0"))
+# plot(hypothesis(m0_,"sd > 0")) # has learned
+# If the mean sat in the prior is pretty close to the data, then the posterior will not move that much in terms of the mean. But has it gotten more confidence (i.e. is it more narrow/has it learnt)?
+# He does not mention anything about actual hypothesis testing here...
+```
+
+Error - F1_ (Multilevel) - Setting priors
+```{r}
+# F1_ (Multilevel)
+# Which priors to define?
+get_prior(incorrect_f1_, d_fake, family = bernoulli())
+
+# Setting priors
+prior_in_f1_ <- c(
+  prior(normal(0, 1.5), class = Intercept), # = mean prob of error (same as before)
+  prior(normal(0, 0.3), class = b, coef = condition1),
+  prior(normal(0, 0.3), class = b, coef = consistency1),
+  prior(normal(0, 0.3), class = sd), # Variation per ID across both predictors
+  prior(lkj(5), class = cor) # Value for correlations, discounting values close to -1 and 1.
+)
+# If 0 = centering at chance (inv_logit of 0 = 0.5), making it "random" whether it is correct or incorrect. We do not know much yet - going from 0 to 1, discounting the extreme values a bit.
+# If -0.8 = 0.31 = 31 % prob of incorrect (but how much do we know at this point?)
+# Does it mirror our expectations?
+
+# Testing the prior in the model
+m1__prior <- brm(
+  incorrect_f1_,
+  d_fake,
+  family = bernoulli(),
+  prior = prior_in_f1_,
+  sample_prior = "only"
+)
+
+# Standard pp_check
+# pp_check(m1__prior, nsamples = 100) #Bypass this
+
+# Better pp_check (when starting to add more parameters, it will be difficult to run ad hoc check with the standard pp_check)
+y_pred <- posterior_linpred(m1__prior) # Generating predictions from the models, not 0s and 1s, but expected rates (thus we want linear prediction - in log-odds space)
+dens(inv_logit(y_pred)) # Into probability space (almost uniform distribution with discounting of values of 0 and 1)
+```
+
+Error - F1 - Fitting the model
+```{r}
+# Fitting the model
+m1 <- brm(
+  incorrect_f1,
+  d_fake,
+  family = bernoulli(),
+  prior = prior_in_f1,
+  sample_prior = T
+)
+
+# Quality check of the model
+summary(m1) # Checking for warnings of divergences and Rhat, ESS
+
+# KOMMET HERTIL
+
+# Trace plots and trace rank plots (Only interested in intercept, the only parameter we have)
+color_scheme_set("viridis")
+mcmc_trace(m1, pars = "b_Intercept", c("b_condition1", "b_consistency1")) + theme_classic() # we can ignore the lp (log-probability)
+mcmc_rank_overlay(m1, pars = "b_Intercept", c("b_condition1", "b_consistency1")) + theme_classic()
+
+# Better pp_check (with m0 instead of m0_prior now)
+y_pred <- posterior_linpred(m1)
+dens(inv_logit(y_pred))
+# See centring around 25% - that is a propensity for answering correctly (25% probability of answering incorrect). Probability scale. And the range of values all look possible.
+# Not comparing with actual data. Can in principle alo be compared with the actual data (he will not do that now though)
+
+## Posterior update check (Has the posterior learned from the prior?)
+plot(hypothesis(m1,"condition1 > 0")) 
+plot(hypothesis(m1,"consistency1 > 0")) 
+# If the mean sat in the prior is pretty close to the data, then the posterior will not move that much in terms of the mean. But has it gotten more confidence (i.e. is it more narrow/has it learnt)?
+# He does not mention anything about actual hypothesis testing here...
+```
+
 
 
 Baseline model
