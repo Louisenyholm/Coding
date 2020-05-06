@@ -289,7 +289,7 @@ pp_check(RT_m1_prior, nsamples = 100)
 # dens(exp(y_pred)) # Into probability space (almost uniform distribution with discounting of values of 0 and 1)
 ```
 
-RT - F0 - Fitting the model
+RT - F1 - Fitting the model
 ```{r}
 # Fitting the model
 RT_m1 <- brm(
@@ -321,7 +321,337 @@ plot(hypothesis(RT_m1,"consistency1 > 0"))
 # Not actual hypothesis testing here...
 ```
 
+RT - F2 - Setting priors
+```{r}
+# RT_F2
+# Which priors to define?
+get_prior(RT_f2, d_fake, family = shifted_lognormal())
 
+# Setting priors
+RT_prior_f2 <- c(
+  prior(normal(6.7, 0.3), class = b, coef = condition0), # mean RT in arrow
+  prior(normal(6.7, 0.3), class = b, coef = condition1), # mean RT in avatar
+  prior(normal(0, 0.1), class = b, coef = condition0:consistency1), # mean RT effect in arrow going consistent to inconsistent
+  prior(normal(0, 0.1), class = b, coef = condition1:consistency1), # mean RT effect in avatar going consistent to inconsistent
+  prior(normal(0, 0.1), class = sigma)
+  # prior(normal(nn, nn), class = ndt)
+)
+# If 6.7 = 812 ms (exp(6.7) = 812)
+# Does it mirror our expectations/the overall mean of the data?
+
+# # Testing the priors
+# l <- rlnorm(10000,
+#             6.7 +
+#               (runif(10000, 0, 1) * # actual values of predictor (min, max)
+#               rnorm(10000, 0, 0.1)) +
+#               (runif(10000, 0, 1) *
+#               rnorm(10000, 0, 0.1)), # values of beta related to that predictor
+#             0.3)
+# 
+# l <- rlnorm(10000,
+#             6.7 +
+#               (runif(10000, 0, 1) *   # actual values of predictor (min, max)
+#               rnorm(10000, 0, 0.1)) + # values of beta related to that predictor
+#               (runif(10000, 0, 1) *   # actual values of predictor (min, max)
+#               rnorm(10000, 0, 0.1)) + # values of beta related to that predictor
+#               rnorm(10000, 0, 0.1),   # sigma
+#             0.3)
+# dens(l)
+
+# Testing the prior in the model
+RT_m2_prior <- brm(
+  RT_f2,
+  d_fake,
+  family = shifted_lognormal(),
+  prior = RT_prior_f2,
+  sample_prior = "only"
+)
+
+# Standard pp_check
+pp_check(RT_m2_prior, nsamples = 100)
+
+# Another pp_check (when starting to add more parameters, it will be difficult to run ad hoc check with the standard pp_check)
+# y_pred <- posterior_linpred(RT_m2_prior) # Generating predictions from the models, not 0s and 1s, but expected rates (thus we want linear prediction - in log-odds space)
+# dens(exp(y_pred)) # Into probability space (almost uniform distribution with discounting of values of 0 and 1)
+```
+
+RT - F2 - Fitting the model
+```{r}
+# Fitting the model
+RT_m2 <- brm(
+  RT_f2,
+  d_fake,
+  family = shifted_lognormal(),
+  prior = RT_prior_f2,
+  sample_prior = T
+)
+
+# Quality check of the model
+summary(RT_m2) # Checking for warnings of divergences and Rhat, ESS
+
+# Trace plots and trace rank plots (Only interested in intercept, the only parameter we have)
+color_scheme_set("viridis")
+mcmc_trace(RT_m2, pars = c("b_condition0", "b_condition1", "b_condition0:consistency1", "b_condition1:consistency1", "sigma", "ndt")) + theme_classic()
+mcmc_rank_overlay(RT_m2, pars = c("b_condition0", "b_condition1", "b_condition0:consistency1", "b_condition1:consistency1", "sigma", "ndt")) + theme_classic()
+
+# Standard pp_check
+pp_check(RT_m2, nsamples = 100)
+
+## Posterior update check (Has the posterior learned from the prior?)
+plot(hypothesis(RT_m2,"condition0 > 0")) # has learned
+plot(hypothesis(RT_m2,"condition1 > 0")) # has learned
+plot(hypothesis(RT_m2,"condition0:consistency1 > 0")) # interaction not made in fake data, so no difference from prior
+plot(hypothesis(RT_m2,"condition1:consistency1 > 0"))
+# plot(hypothesis(RT_m0, "sigma > 0")) # Something like this for sigma?
+# NDT???
+# If the mean sat in the prior is pretty close to the data, then the posterior will not move that much in terms of the mean. But has it gotten more confidence (i.e. is it more narrow/has it learned)?
+# Not actual hypothesis testing here...
+```
+
+RT - F0_ (Multilevel) - Setting priors
+```{r}
+# RT_F0_ (Multilevel)
+# Which priors to define?
+get_prior(RT_f0_, d_fake, family = shifted_lognormal())
+
+# Setting priors
+RT_prior_f0_ <- c(
+  prior(normal(6.7, 0.3), class = Intercept),
+  prior(normal(0, 0.1), class = sigma),
+  prior(normal(0, 0.1), class = sd)
+  # prior(normal(nn, nn), class = ndt)
+)
+# If 6.7 = 812 ms (exp(6.7) = 812)
+# Does it mirror our expectations/the overall mean of the data?
+
+# Testing the priors
+l <- rlnorm(10000, 6.7 , 0.3) # sampling from the lognormal
+
+l <- rlnorm(10000,
+            6.7 +
+              rnorm(10000, 0, .1) + # maybe this is like adding the sigma
+              rnorm(10000, 0, .1), # and sd
+            0.3)
+dens(l)
+
+# Testing the prior in the model
+RT_m0__prior <- brm(
+  RT_f0_,
+  d_fake,
+  family = shifted_lognormal(),
+  prior = RT_prior_f0_,
+  sample_prior = "only"
+)
+
+# Standard pp_check
+pp_check(RT_m0__prior, nsamples = 100)
+
+# Another pp_check (when starting to add more parameters, it will be difficult to run ad hoc check with the standard pp_check)
+# y_pred <- posterior_linpred(RT_m0__prior) # Generating predictions from the models, not 0s and 1s, but expected rates (thus we want linear prediction - in log-odds space)
+# dens(exp(y_pred)) # Into probability space (almost uniform distribution with discounting of values of 0 and 1)
+```
+
+RT - F0_ (Multilevel) - Fitting the model
+```{r}
+# Fitting the model
+RT_m0_ <- brm(
+  RT_f0_,
+  d_fake,
+  family = shifted_lognormal(),
+  prior = RT_prior_f0_,
+  sample_prior = T
+)
+
+# Quality check of the model
+summary(RT_m0_) # Checking for warnings of divergences and Rhat, ESS
+
+# Trace plots and trace rank plots (Only interested in intercept, the only parameter we have)
+color_scheme_set("viridis")
+mcmc_trace(RT_m0_, pars = c("b_Intercept", "sigma", "ndt", "sd_ID__Intercept")) + theme_classic()
+mcmc_rank_overlay(RT_m0_, pars = c("b_Intercept", "sigma", "ndt", "sd_ID__Intercept")) + theme_classic()
+
+# Standard pp_check
+pp_check(RT_m0_, nsamples = 100)
+
+## Posterior update check (Has the posterior learned from the prior?)
+plot(hypothesis(RT_m0,"Intercept > 0"))
+# plot(hypothesis(RT_m0, "sigma > 0")) # Something like this for sigma?
+# and NDT?
+# and SD?
+# It does not plot the prior for Intercept.
+```
+
+RT - F1_ (Multilevel) - Setting priors
+```{r}
+# RT_F1_ (Multilevel)
+# Which priors to define?
+get_prior(RT_f1_, d_fake, family = shifted_lognormal())
+
+# Setting priors
+RT_prior_f1_ <- c(
+  prior(normal(6.7, 0.3), class = Intercept), # = mean RT
+  prior(normal(0, 0.1), class = b, coef = condition1),
+  prior(normal(0, 0.1), class = b, coef = consistency1),
+  prior(normal(0, 0.1), class = sigma),
+  prior(normal(0, 0.1), class = sd), # Variation per ID across both predictors
+  prior(lkj(5), class = cor) # should this be defined in log as well
+  # prior(normal(nn, nn), class = ndt)
+)
+# If 6.7 = 812 ms (exp(6.7) = 812)
+# Does it mirror our expectations/the overall mean of the data?
+
+
+# Testing the priors
+l <- rlnorm(10000,
+            6.7 +
+              (runif(10000, 0, 1) *   # actual values of predictor (min, max)
+              rnorm(10000, 0, 0.1)) + # values of beta related to that predictor
+              (runif(10000, 0, 1) *   # actual values of predictor (min, max)
+              rnorm(10000, 0, 0.1)) + # values of beta related to that predictor
+              rnorm(10000, 0, 0.1),   # sigma
+              rnorm(10000, 0, 0.1),   # sd
+            0.3)
+dens(l)
+
+# Testing the prior in the model
+RT_m1__prior <- brm(
+  RT_f1_,
+  d_fake,
+  family = shifted_lognormal(),
+  prior = RT_prior_f1_,
+  sample_prior = "only"
+)
+
+# Standard pp_check
+pp_check(RT_m1__prior, nsamples = 100)
+
+# Another pp_check (when starting to add more parameters, it will be difficult to run ad hoc check with the standard pp_check)
+# y_pred <- posterior_linpred(RT_m1__prior) # Generating predictions from the models, not 0s and 1s, but expected rates (thus we want linear prediction - in log-odds space)
+# dens(exp(y_pred)) # Into probability space (almost uniform distribution with discounting of values of 0 and 1)
+```
+
+RT - F1_ (Multilevel) - Fitting the model
+```{r}
+# Fitting the model
+RT_m1_ <- brm(
+  RT_f1_,
+  d_fake,
+  family = shifted_lognormal(),
+  prior = RT_prior_f1_,
+  sample_prior = T
+)
+
+# Quality check of the model
+summary(RT_m1_) # Checking for warnings of divergences and Rhat, ESS
+
+# Trace plots and trace rank plots (Only interested in intercept, the only parameter we have)
+color_scheme_set("viridis")
+mcmc_trace(RT_m1_, pars = c("b_Intercept", "b_condition1", "b_consistency1", "sigma", "ndt", "sd_ID__Intercept", "sd_ID__condition1", "sd_ID__consistency1", "cor_ID__Intercept__condition1", "cor_ID__Intercept__consistency1", "cor_ID__condition1__consistency1")) + theme_classic()
+mcmc_rank_overlay(RT_m1_, pars = c("b_Intercept", "b_condition1", "b_consistency1", "sigma", "ndt", "sd_ID__Intercept", "sd_ID__condition1", "sd_ID__consistency1", "cor_ID__Intercept__condition1", "cor_ID__Intercept__consistency1", "cor_ID__condition1__consistency1")) + theme_classic()
+
+# Standard pp_check
+pp_check(RT_m1_, nsamples = 100)
+
+## Posterior update check (Has the posterior learned from the prior?)
+plot(hypothesis(RT_m1_,"Intercept > 0"))
+plot(hypothesis(RT_m1_,"condition1 > 0")) 
+plot(hypothesis(RT_m1_,"consistency1 > 0")) 
+# plot(hypothesis(RT_m0, "sigma > 0")) # Something like this for sigma?
+# NDT???
+# SD??
+# If the mean sat in the prior is pretty close to the data, then the posterior will not move that much in terms of the mean. But has it gotten more confidence (i.e. is it more narrow/has it learned)?
+# Not actual hypothesis testing here...
+```
+
+RT - F2_ (Multilevel) - Setting priors
+```{r}
+# RT_F2_ (Multilevel)
+# Which priors to define?
+get_prior(RT_f2_, d_fake, family = shifted_lognormal())
+
+# Setting priors
+RT_prior_f2_ <- c(
+  prior(normal(6.7, 0.3), class = b, coef = condition0), # mean RT in arrow
+  prior(normal(6.7, 0.3), class = b, coef = condition1), # mean RT in avatar
+  prior(normal(0, 0.1), class = b, coef = condition0:consistency1), # mean RT effect in arrow going consistent to inconsistent
+  prior(normal(0, 0.1), class = b, coef = condition1:consistency1), # mean RT effect in avatar going consistent to inconsistent
+  prior(normal(0, 0.1), class = sigma),
+  prior(normal(0, 0.1), class = sd), # Variation per ID across both predictors
+  prior(lkj(5), class = cor) # should this be defined in log as well
+  # prior(normal(nn, nn), class = ndt)
+)
+# If 6.7 = 812 ms (exp(6.7) = 812)
+# Does it mirror our expectations/the overall mean of the data?
+
+# # Testing the priors
+# l <- rlnorm(10000,
+#             6.7 +
+#               (runif(10000, 0, 1) * # actual values of predictor (min, max)
+#               rnorm(10000, 0, 0.1)) +
+#               (runif(10000, 0, 1) *
+#               rnorm(10000, 0, 0.1)), # values of beta related to that predictor
+#             0.3)
+# 
+# l <- rlnorm(10000,
+#             6.7 +
+#               (runif(10000, 0, 1) *   # actual values of predictor (min, max)
+#               rnorm(10000, 0, 0.1)) + # values of beta related to that predictor
+#               (runif(10000, 0, 1) *   # actual values of predictor (min, max)
+#               rnorm(10000, 0, 0.1)) + # values of beta related to that predictor
+#               rnorm(10000, 0, 0.1),   # sigma
+#             0.3)
+# dens(l)
+
+# Testing the prior in the model
+RT_m2__prior <- brm(
+  RT_f2_,
+  d_fake,
+  family = shifted_lognormal(),
+  prior = RT_prior_f2_,
+  sample_prior = "only"
+)
+
+# Standard pp_check
+pp_check(RT_m2__prior, nsamples = 100)
+
+# Another pp_check (when starting to add more parameters, it will be difficult to run ad hoc check with the standard pp_check)
+# y_pred <- posterior_linpred(RT_m2__prior) # Generating predictions from the models, not 0s and 1s, but expected rates (thus we want linear prediction - in log-odds space)
+# dens(exp(y_pred)) # Into probability space (almost uniform distribution with discounting of values of 0 and 1)
+```
+
+RT - F2_ (Multilevel) - Fitting the model
+```{r}
+# Fitting the model
+RT_m2_ <- brm(
+  RT_f2_,
+  d_fake,
+  family = shifted_lognormal(),
+  prior = RT_prior_f2_,
+  sample_prior = T
+)
+
+# Quality check of the model
+summary(RT_m2_) # Checking for warnings of divergences and Rhat, ESS
+
+# Trace plots and trace rank plots (Only interested in intercept, the only parameter we have)
+color_scheme_set("viridis")
+mcmc_trace(RT_m2_, pars = c("b_condition0", "b_condition1", "b_condition0:consistency1", "b_condition1:consistency1", "sigma", "ndt", "sd_ID__condition0", "sd_ID__condition1", "sd_ID__condition0:consistency1", "sd_ID__condition1:consistency1", "cor_ID__condition0__condition1", "cor_ID__condition0__condition0:consistency1", "cor_ID__condition1__condition0:consistency1", "cor_ID__condition0__condition1:consistency1", "cor_ID__condition1__condition1:consistency1", "cor_ID__condition0:consistency1__condition1:consistency1")) + theme_classic()
+mcmc_rank_overlay(RT_m2_, pars = c("b_condition0", "b_condition1", "b_condition0:consistency1", "b_condition1:consistency1", "sigma", "ndt", "sd_ID__condition0", "sd_ID__condition1", "sd_ID__condition0:consistency1", "sd_ID__condition1:consistency1", "cor_ID__condition0__condition1", "cor_ID__condition0__condition0:consistency1", "cor_ID__condition1__condition0:consistency1", "cor_ID__condition0__condition1:consistency1", "cor_ID__condition1__condition1:consistency1", "cor_ID__condition0:consistency1__condition1:consistency1")) + theme_classic()
+
+# Standard pp_check
+pp_check(RT_m2_, nsamples = 100)
+
+## Posterior update check (Has the posterior learned from the prior?)
+plot(hypothesis(RT_m2_,"condition0 > 0")) # has learned
+plot(hypothesis(RT_m2_,"condition1 > 0")) # has learned
+plot(hypothesis(RT_m2_,"condition0:consistency1 > 0")) # interaction not made in fake data, so no difference from prior
+plot(hypothesis(RT_m2_,"condition1:consistency1 > 0"))
+# plot(hypothesis(RT_m0, "sigma > 0")) # Something like this for sigma?
+# NDT???
+# SD???
+# If the mean sat in the prior is pretty close to the data, then the posterior will not move that much in terms of the mean. But has it gotten more confidence (i.e. is it more narrow/has it learned)?
+# Not actual hypothesis testing here...
+```
 
 
 RF: Chimp-video part 2:
@@ -761,7 +1091,6 @@ summary(m2_) # Checking for warnings of divergences and Rhat, ESS
 # Trace plots and trace rank plots (Only interested in intercept, the only parameter we have)
 color_scheme_set("viridis")
 mcmc_trace(m2_, pars = c("b_condition0", "b_condition1", "b_condition0:consistency1", "b_condition1:consistency1", "sd_ID__condition0", "sd_ID__condition1", "sd_ID__condition0:consistency1", "sd_ID__condition1:consistency1", "cor_ID__condition0__condition1", "cor_ID__condition0__condition0:consistency1", "cor_ID__condition1__condition0:consistency1", "cor_ID__condition0__condition1:consistency1",  "cor_ID__condition1__condition1:consistency1", "cor_ID__condition0:consistency1__condition1:consistency1")) + theme_classic() # we can ignore the lp (log-probability)
-##### plus cor?
 mcmc_rank_overlay(m2_, pars = c("b_condition0", "b_condition1", "b_condition0:consistency1", "b_condition1:consistency1", "sd_ID__condition0", "sd_ID__condition1", "sd_ID__condition0:consistency1", "sd_ID__condition1:consistency1", "cor_ID__condition0__condition1", "cor_ID__condition0__condition0:consistency1", "cor_ID__condition1__condition0:consistency1", "cor_ID__condition0__condition1:consistency1",  "cor_ID__condition1__condition1:consistency1", "cor_ID__condition0:consistency1__condition1:consistency1")) + theme_classic()
 
 # Better pp_check (with m0 instead of m0_prior now)
