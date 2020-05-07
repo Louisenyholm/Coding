@@ -653,6 +653,25 @@ plot(hypothesis(RT_m2_,"condition1:consistency1 > 0"))
 # Not actual hypothesis testing here...
 ```
 
+Comparing RT models for hypothesis 1
+```{r}
+# Adding criterion
+RT_m0 <- add_criterion(m0, criterion = c("bayes_R2", "loo"), reloo = T)
+RT_m1 <- add_criterion(m1, criterion = c("bayes_R2", "loo"), reloo = T)
+RT_m2 <- add_criterion(m2, criterion = c("bayes_R2", "loo"), reloo = T)
+RT_m0_ <- add_criterion(m0_, criterion = c("bayes_R2", "loo"), reloo = T)
+RT_m1_ <- add_criterion(m1_, criterion = c("bayes_R2", "loo"), reloo = T)
+RT_m2_ <- add_criterion(m2_, criterion = c("bayes_R2", "loo"), reloo = T)
+
+# Comparing out of sample error
+loo_compare(RT_m0, RT_m1, RT_m2, RT_m0_, RT_m1_, RT_m2_)
+
+# Stacking weights
+loo_model_weights(RT_m0, RT_m1, RT_m2, RT_m0_, RT_m1_, RT_m2_)
+
+```
+
+
 
 RF: Chimp-video part 2:
 We want to see the propensity of participants to be affected by altercentric intrusion/consistency effect (across conditions) (that is, their propensity to make errors on the DPT in consistent vs. inconsistent and arrow vs. avatar condition).
@@ -1110,15 +1129,15 @@ plot(hypothesis(m2_,"condition1:consistency1 > 0"))
 ```
 
 
-Comparing models for hypothesis 1
+Comparing error models for hypothesis 1
 ```{r}
 # Adding criterion
-m0 <- add_criterion(m0, criterion = c("bayes_R2", "loo"))
-m1 <- add_criterion(m1, criterion = c("bayes_R2", "loo"))
-m2 <- add_criterion(m2, criterion = c("bayes_R2", "loo"))
-m0_ <- add_criterion(m0_, criterion = c("bayes_R2", "loo"))
-m1_ <- add_criterion(m1_, criterion = c("bayes_R2", "loo"))
-m2_ <- add_criterion(m2_, criterion = c("bayes_R2", "loo"))
+m0 <- add_criterion(m0, criterion = c("bayes_R2", "loo"), reloo = T)
+m1 <- add_criterion(m1, criterion = c("bayes_R2", "loo"), reloo = T)
+m2 <- add_criterion(m2, criterion = c("bayes_R2", "loo"), reloo = T)
+m0_ <- add_criterion(m0_, criterion = c("bayes_R2", "loo"), reloo = T)
+m1_ <- add_criterion(m1_, criterion = c("bayes_R2", "loo"), reloo = T)
+m2_ <- add_criterion(m2_, criterion = c("bayes_R2", "loo"), reloo = T)
 
 # Comparing out of sample error
 loo_compare(m0, m1, m2, m0_, m1_, m2_)
@@ -1127,6 +1146,13 @@ loo_compare(m0, m1, m2, m0_, m1_, m2_)
 loo_model_weights(m0,m1, m2, m0_, m1_, m2_)
 
 ```
+
+
+
+
+* Make some pretty plots
+* Use the NDT in RT models
+* How to approach H2?
 
 
 
