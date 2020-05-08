@@ -1,0 +1,226 @@
+---
+title: "Test coding"
+author: "Louise"
+date: "23/4/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Loading packages
+pacman::p_load(tidyverse, brms, bayesplot, rethinking, data.table)
+```
+
+Loading and preprocessing data
+```{r}
+# NOT NEEDED
+#d3 <- read_csv("data_times.csv") (only data times)
+
+# Loading data
+d1 <- read_csv("data.csv")          # All participants info + emp
+# p <- read.table("DPT_FEMALE.2020-04-29-1628.data.6fa8424a-a872-459f-b3a8-d60c12f0fe2b.txt", quote="\"", comment.char="")   # Single participant experimental trials
+
+# Preprocessing
+
+# Reversing empathy item 1, 2, 17, 29
+d1[ ,c(10,11,26,38)] = 5 - d1[ ,c(10,11,26,38)]
+
+# Calculating empathy (Cognitive Empathy, Affective Empathy, Total Empathy Score)
+d1$cogemp <- rowSums(d1[, c(10, 12:15, 24:25, 27:31, 33:37, 39:40)])
+d1$affemp <- rowSums(d1[, c(11, 16:23, 26, 32, 38)])
+d1$totalemp <- d1$cogemp + d1$affemp
+
+# Gender into M and F
+d1$gender <- ifelse(d1$`sex:1` == 1, "M", "F")
+
+# Nationality (native_language) and siblings
+d1$native <- 0
+d1$siblings <- NA
+
+for(i in 1:nrow(d1)){
+  d1$native[i] <- ifelse(d1[i,4] == 1, "danish",
+                     ifelse(d1[i,4] == 2, "english",
+                            ifelse(d1[i,4] == 3, "german",
+                                   d1[i,5])))
+  d1$siblings[i] <- ifelse(d1[i, 6] == 5, d1[i, 7], d1[i, 6])
+  }
+
+# Renaming age column
+names(d1)[2] <- "age"
+
+# Matching the names in order to merge (participant remvoving s.)
+d1$participant <- gsub("s.", "", d1$participant)
+
+
+# New dataframe without all the empathy columns
+emp <- d1[, c("participant", "gender", "age", "native", "siblings", "cogemp", "affemp", "totalemp")]
+
+
+
+# Filename for merging
+#setwd("C:/Users/louis/OneDrive - Aarhus universitet/AU Onedrive - RIGTIG/- 4. Semester/Social and Cultural Dynamics in Cognition/Exam related/Coding")
+
+# read file path
+all_paths <-
+  list.files(path = "C:/Users/louis/OneDrive - Aarhus universitet/AU Onedrive - RIGTIG/- 4. Semester/Social and Cultural Dynamics in Cognition/Exam related/Coding",
+             pattern = "*.txt",
+             full.names = TRUE)
+ 
+# read file content
+all_content <-
+  all_paths %>%
+  lapply(read.table,
+         quote="\"",
+         comment.char="")
+ 
+# read file name
+all_filenames <- all_paths %>%
+  basename() %>%
+  as.list()
+ 
+# combine file content list and file name list
+all_lists <- mapply(c, all_content, all_filenames, SIMPLIFY = FALSE)
+ 
+# unlist all lists and change column name
+all_result <- rbindlist(all_lists, fill = T)
+
+# change column name
+names(all_result) <- c("block", "stimuli", "condition", "direction", "self", "other", "consistency", "cue", "correctresponse", "response", "accuracy", "RT", "participant")
+
+
+# Function for keeping the last part
+substrRight <- function(x, n){
+  substr(x, nchar(x)-n+1, nchar(x))
+}
+ # Using the function to keep 40 last characters
+all_result$participant <- substrRight(all_result$participant, 40)
+
+# Button and correctbutton
+all_result$correctresponse <- ifelse(all_result$correctresponse == 1, "yes", "no")
+all_result$response <- ifelse(all_result$response == 1, "yes", "no")
+all_result$response <- ifelse(all_result$accuracy == 3, "late", all_result$response)
+
+# Accuracy
+all_result$accuracy <- ifelse(all_result$accuracy == 1, "correct", ifelse(all_result$accuracy ==2, "incorrect", "late"))
+
+
+### Merging by participant
+d <- merge(emp, all_result, by = "participant")
+
+# Creating indices for each participant
+d$ID <- d %>%
+  group_indices(participant)
+```
+
+
+Reaction Time - Defining models
+```{r}
+# # Baseline model
+# RT_f0 <- bf(RT ~ 1)
+# # Consistency
+# RT_f1 <- bf(RT ~ 1 + consistency)
+# # Condition + consistency model
+# RT_f1 <- bf(RT ~ 1 + condition + consistency)
+# # Interaction model
+# RT_f2 <- bf(RT ~ 0 + condition + condition : consistency)
+
+# Multilevel baseline model
+RT_f0 <- bf(RT ~ 1 + (1|ID))
+# Consistency simple
+RT_f1 <- bf(RT ~ 1 + consistency + (1|ID))
+# Consistency complex
+RT_f1.1 <- bf(RT ~ 1 + consistency + (1 + consistency|ID))
+# Multilevel consistency model simple
+RT_f2 <- bf(RT ~ 1 + condition + consistency + (1|ID))
+# Multilevel consistency model complex
+RT_f2.1 <- bf(RT ~ 1 + condition + consistency + (1 + condition + consistency|ID))
+# Multilevel interaction model simple
+RT_f3 <- bf(RT ~ 0 + condition + condition : consistency + (1|ID))
+# Multilevel interaction model complex
+RT_f3.1 <- bf(RT ~ 0 + condition + condition : consistency + (0 + condition + condition : consistency | ID))
+```
+
+
+RT_f0 - Setting priors
+```{r}
+# RT_f0
+# Which priors to define?
+get_prior(RT_f0, d_fake, family = shifted_lognormal())
+
+# RT_f0 <- bf(RT|trunc(ub = 2000) ~ 1 + (1|ID))
+
+# Setting priors
+RT_prior_f0 <- c(
+  prior(normal(6.7, 0.3), class = Intercept), # should reflect the mean of our RTs
+  prior(normal(0, 0.2), class = sigma),
+  prior(normal(0, 0.2), class = sd) # should not be bigger than the beta
+  # prior(normal(nn, nn), class = ndt)
+)
+# If 6.7 = 812 ms (exp(6.7) = 812)
+# exp(6.7-2*0.3) = min RT,  exp(6.7+2*0.3) max RT
+
+# Testing the priors
+l <- rlnorm(10000, 6.7 , 0.3) # sampling from the lognormal
+
+l <- rlnorm(10000,
+            6.7 +
+              rnorm(10000, 0, .1) + # maybe this is like adding the sigma
+              rnorm(10000, 0, .1), # and sd
+            0.3)
+dens(l)
+
+# Testing the prior in the model
+RT_m0_prior <- brm(
+  RT_f0,
+  d_fake,
+  family = shifted_lognormal(),
+  prior = RT_prior_f0,
+  sample_prior = "only"
+)
+
+# Standard pp_check
+pp_check(RT_m0_prior, nsamples = 100)
+
+# Another pp_check (when starting to add more parameters, it will be difficult to run ad hoc check with the standard pp_check)
+# y_pred <- posterior_linpred(RT_m0_prior) # Generating predictions from the models, not 0s and 1s, but expected rates (thus we want linear prediction - in log-odds space)
+# dens(exp(y_pred)) # Into probability space (almost uniform distribution with discounting of values of 0 and 1)
+```
+
+RT_f0 - Fitting the model
+```{r}
+# Fitting the model
+RT_m0 <- brm(
+  RT_f0,
+  d_fake,
+  family = shifted_lognormal(),
+  prior = RT_prior_f0,
+  sample_prior = T
+)
+
+# Quality check of the model
+summary(RT_m0) # Checking for warnings of divergences and Rhat, ESS
+
+# Trace plots and trace rank plots (Only interested in intercept, the only parameter we have)
+color_scheme_set("viridis")
+mcmc_trace(RT_m0, pars = c("b_Intercept", "sigma", "ndt", "sd_ID__Intercept")) + theme_classic()
+mcmc_rank_overlay(RT_m0, pars = c("b_Intercept", "sigma", "ndt", "sd_ID__Intercept")) + theme_classic()
+
+# Standard pp_check
+pp_check(RT_m0, nsamples = 100)
+
+## Posterior update check (Has the posterior learned from the prior?)
+plot(hypothesis(RT_m0,"Intercept > 0"))
+# plot(hypothesis(RT_m0, "sigma > 0")) # Something like this for sigma?
+# and NDT?
+# and SD?
+# It does not plot the prior for Intercept.
+```
+
+
+
+
+
+
+
+
